@@ -84,20 +84,25 @@ final class VirtualDisplaySession {
         ImageReader reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 3);
         Surface surface = reader.getSurface();
 
+        // Start with the least restrictive public configuration. Some Android
+        // 12 vendor builds reject PRESENTATION when combined with shell-created
+        // virtual displays, so it is deliberately excluded from the fallbacks.
         int baseFlags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC
-                | DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
                 | DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY;
         int touchFlag = hiddenFlag("VIRTUAL_DISPLAY_FLAG_SUPPORTS_TOUCH");
         int focusFlag = hiddenFlag("VIRTUAL_DISPLAY_FLAG_OWN_FOCUS");
         int trustedFlag = hiddenFlag("VIRTUAL_DISPLAY_FLAG_TRUSTED");
         int[] candidates = new int[]{
-                baseFlags | touchFlag | focusFlag | trustedFlag,
-                baseFlags | touchFlag | focusFlag,
+                baseFlags,
                 baseFlags | touchFlag,
-                baseFlags
+                baseFlags | touchFlag | focusFlag,
+                baseFlags | touchFlag | focusFlag | trustedFlag,
+                baseFlags | DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION,
+                baseFlags | DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION | touchFlag
         };
 
         Throwable lastError = null;
+        StringBuilder attempts = new StringBuilder();
         for (int flags : candidates) {
             VirtualDisplay display = null;
             try {
@@ -110,6 +115,12 @@ final class VirtualDisplaySession {
                 }
             } catch (Throwable e) {
                 lastError = e;
+                if (attempts.length() > 0) attempts.append(" | ");
+                attempts.append(describeFlags(flags)).append(": ")
+                        .append(e.getClass().getSimpleName()).append(": ")
+                        .append(String.valueOf(e.getMessage()));
+                android.util.Log.w(TAG, "Virtual display attempt failed: "
+                        + attempts, e);
             }
             if (display != null) {
                 try {
@@ -126,7 +137,9 @@ final class VirtualDisplaySession {
             surface.release();
         } catch (Throwable ignored) {
         }
-        throw new IllegalStateException("createVirtualDisplay failed for every flag set", lastError);
+        throw new IllegalStateException(
+                "createVirtualDisplay failed for every flag set. Attempts: " + attempts,
+                lastError);
     }
 
     int displayId() {
