@@ -103,23 +103,38 @@ final class VirtualDisplaySession {
 
         Throwable lastError = null;
         StringBuilder attempts = new StringBuilder();
-        for (int flags : candidates) {
+        for (int index = 0; index < candidates.length; index++) {
+            int flags = candidates[index];
             VirtualDisplay display = null;
             try {
                 display = manager.createVirtualDisplay(
                         "HeadlessAndroid", width, height, dpi, surface, flags);
-                Display target = display == null ? null : display.getDisplay();
+                if (display == null) {
+                    appendAttempt(attempts, index, flags,
+                            "createVirtualDisplay returned null");
+                    android.util.Log.w(TAG, "Virtual display attempt "
+                            + (index + 1) + "/" + candidates.length + " failed: "
+                            + attempts);
+                    continue;
+                }
+
+                Display target = display.getDisplay();
                 if (target != null) {
                     return new VirtualDisplaySession(width, height, dpi,
                             reader, surface, display, target, flags);
                 }
+                appendAttempt(attempts, index, flags,
+                        "VirtualDisplay.getDisplay() returned null");
+                android.util.Log.w(TAG, "Virtual display attempt "
+                        + (index + 1) + "/" + candidates.length + " failed: "
+                        + attempts);
             } catch (Throwable e) {
                 lastError = e;
-                if (attempts.length() > 0) attempts.append(" | ");
-                attempts.append(describeFlags(flags)).append(": ")
-                        .append(e.getClass().getSimpleName()).append(": ")
-                        .append(String.valueOf(e.getMessage()));
-                android.util.Log.w(TAG, "Virtual display attempt failed: "
+                appendAttempt(attempts, index, flags,
+                        e.getClass().getSimpleName() + ": "
+                                + String.valueOf(e.getMessage()));
+                android.util.Log.w(TAG, "Virtual display attempt "
+                        + (index + 1) + "/" + candidates.length + " failed: "
                         + attempts, e);
             }
             if (display != null) {
@@ -138,7 +153,10 @@ final class VirtualDisplaySession {
         } catch (Throwable ignored) {
         }
         throw new IllegalStateException(
-                "createVirtualDisplay failed for every flag set. Attempts: " + attempts,
+                "createVirtualDisplay failed for every flag set. uid="
+                        + android.os.Process.myUid()
+                        + ", sdk=" + android.os.Build.VERSION.SDK_INT
+                        + ", attempts: " + attempts,
                 lastError);
     }
 
@@ -352,6 +370,17 @@ final class VirtualDisplaySession {
             out.setLength(out.length() - 1);
         }
         return out.toString();
+    }
+
+    private static void appendAttempt(StringBuilder attempts, int index,
+                                       int flags, String detail) {
+        if (attempts.length() > 0) {
+            attempts.append(" | ");
+        }
+        attempts.append("#").append(index + 1).append(" ")
+                .append(describeFlags(flags))
+                .append(" [0x").append(Integer.toHexString(flags)).append("]")
+                .append(": ").append(detail);
     }
 
     private static int hiddenFlag(String name) {
